@@ -1,7 +1,7 @@
 
 name: Build APK
 
-"on":
+on:
   push:
     branches:
       - main
@@ -30,12 +30,26 @@ jobs:
         uses: android-actions/setup-android@v4
         with:
           cmdline-tools-version: '14742923'
-          packages: ''
 
       - name: Install Android SDK packages
         run: |
           yes | sdkmanager --licenses
           sdkmanager --install "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+
+      - name: Find Gradle project
+        run: |
+          set -e
+          FILE=$(find . -type f \( -name settings.gradle -o -name settings.gradle.kts \) -not -path './.git/*' | head -n 1)
+
+          if [ -z "$FILE" ]; then
+            echo "No Gradle settings file found!"
+            find . -maxdepth 4 -type f
+            exit 1
+          fi
+
+          DIR=$(dirname "$FILE")
+          echo "BUILD_DIR=$DIR" >> "$GITHUB_ENV"
+          echo "Gradle project found in: $DIR"
 
       - name: Set up Gradle 8.7
         uses: gradle/actions/setup-gradle@v6
@@ -44,11 +58,13 @@ jobs:
           cache-disabled: true
 
       - name: Build release APK
-        run: gradle :app:assembleRelease --no-daemon --stacktrace
+        run: |
+          cd "$BUILD_DIR"
+          gradle assembleRelease --no-daemon --stacktrace
 
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
           name: PortYouStudio-apk
-          path: app/build/outputs/apk/release/*.apk
+          path: ${{ env.BUILD_DIR }}/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
