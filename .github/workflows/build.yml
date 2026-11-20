@@ -58,6 +58,11 @@ jobs:
               else:
                   print("skip (not found):", a[:50])
           open(p, "w", encoding="utf8").write(s)
+          g = os.path.join(os.environ["PROJECT_DIR"], "app/build.gradle.kts")
+          t = open(g, encoding="utf8").read()
+          t = t.replace("isMinifyEnabled = true", "isMinifyEnabled = false").replace("isShrinkResources = true", "isShrinkResources = false")
+          open(g, "w", encoding="utf8").write(t)
+          print("gradle patched: minify off")
           PYEOF
 
       - uses: actions/setup-java@v5
@@ -92,7 +97,7 @@ jobs:
         shell: bash
         run: |
           [ -f /tmp/build.log ] || exit 0
-          grep -A4 -E '^e: ' /tmp/build.log | sed 's#file:///.*/studio/##' | head -n 120 > /tmp/errs.txt || true
+          { grep -A4 -E '^e: ' /tmp/build.log | sed 's#file:///.*/studio/##' | head -n 120; grep -nE 'Missing class|ERROR:|error:|What went wrong' -A2 /tmp/build.log | head -n 60; } > /tmp/errs.txt || true
           { echo '### Kotlin errors'; echo '```'; cat /tmp/errs.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           echo "=========== ERRORS ==========="
           cat /tmp/errs.txt
