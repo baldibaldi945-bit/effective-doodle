@@ -32,6 +32,34 @@ jobs:
           echo "PROJECT_DIR=$DIR" >> "$GITHUB_ENV"
           echo "Project: $DIR"
 
+      - name: Patch source (fix compile errors)
+        shell: bash
+        run: |
+          python3 - <<'PYEOF'
+          import os
+          p = os.path.join(os.environ["PROJECT_DIR"], "app/src/main/java/com/portyou/studio/convert/VSliceConverter.kt")
+          s = open(p, encoding="utf8").read()
+          reps = [
+            ("val atlasBounds = if (xmlFiles.isEmpty()) {",
+             "val atlasBounds: List<Pair<Double, Double>> = if (xmlFiles.isEmpty()) {"),
+            ("val candidates = atlasSourceOrder.values.mapNotNull { Atlas.animateAtlasSize(it) }",
+             "val candidates: List<Pair<Double, Double>> = atlasSourceOrder.values.mapNotNull { f -> Atlas.animateAtlasSize(f) }"),
+            ("Atlas.animateAtlasSize(atlasDir)?.let { listOf(it) } else candidates",
+             "listOfNotNull(Atlas.animateAtlasSize(atlasDir)) else candidates"),
+            ("val atlasW = atlasBounds.maxOfOrNull { it.first }",
+             "val atlasW: Double? = atlasBounds.map { b -> b.first }.maxOrNull()"),
+            ("val atlasH = atlasBounds.maxOfOrNull { it.second }",
+             "val atlasH: Double? = atlasBounds.map { b -> b.second }.maxOrNull()"),
+          ]
+          for a, b in reps:
+              if a in s:
+                  s = s.replace(a, b)
+                  print("patched:", a[:50])
+              else:
+                  print("skip (not found):", a[:50])
+          open(p, "w", encoding="utf8").write(s)
+          PYEOF
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -46,7 +74,6 @@ jobs:
           SM="$SDK/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SM" --licenses > /dev/null 2>&1 || true
           "$SM" "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1 || true
-          ls "$SDK/platforms" "$SDK/build-tools" || true
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -65,11 +92,10 @@ jobs:
         shell: bash
         run: |
           [ -f /tmp/build.log ] || exit 0
-          {
-            echo '### Gradle errors'
-            grep -nE '^e: |What went wrong|Execution failed|Caused by:|Unresolved reference|AAPT|R8|Could not resolve' /tmp/build.log | head -n 60
-          } >> "$GITHUB_STEP_SUMMARY"
-          grep -nE '^e: |What went wrong|Execution failed|Caused by:|Unresolved reference|AAPT|R8|Could not resolve' /tmp/build.log | head -n 40 || true
+          grep -A4 -E '^e: ' /tmp/build.log | sed 's#file:///.*/studio/##' | head -n 120 > /tmp/errs.txt || true
+          { echo '### Kotlin errors'; echo '```'; cat /tmp/errs.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          echo "=========== ERRORS ==========="
+          cat /tmp/errs.txt
 
       - name: Collect APK
         shell: bash
